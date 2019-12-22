@@ -60,3 +60,54 @@ private Class<?> deduceMainApplicationClass() {
 		return null;
 	}
 ```
+
+ConfigurableApplicationContext
+
+![ConfigurableApplicationContext](images/configurableApplicationContext.png)
+
+AnnotationConfigApplicationContext
+
+![AnnotationConfigApplicationContext](images/AnnotationConfigApplicationContext.png)
+
+DefaultListableBeanFactory 函数式编程代码
+
+```java
+private void updateManualSingletonNames(Consumer<Set<String>> action, Predicate<Set<String>> condition) {
+		if (hasBeanCreationStarted()) {
+			// Cannot modify startup-time collection elements anymore (for stable iteration)
+			synchronized (this.beanDefinitionMap) {
+				if (condition.test(this.manualSingletonNames)) {
+					Set<String> updatedSingletons = new LinkedHashSet<>(this.manualSingletonNames);
+					action.accept(updatedSingletons);
+					this.manualSingletonNames = updatedSingletons;
+				}
+			}
+		}
+		else {
+			// Still in startup registration phase
+			if (condition.test(this.manualSingletonNames)) {
+				action.accept(this.manualSingletonNames);
+			}
+		}
+	}
+
+@Override
+	public void registerSingleton(String beanName, Object singletonObject) throws IllegalStateException {
+		super.registerSingleton(beanName, singletonObject);
+		updateManualSingletonNames(set -> set.add(beanName), set -> !this.beanDefinitionMap.containsKey(beanName));
+		clearByTypeCache();
+	}
+
+	@Override
+	public void destroySingletons() {
+		super.destroySingletons();
+		updateManualSingletonNames(Set::clear, set -> !set.isEmpty());
+		clearByTypeCache();
+	}
+```
+
+DefaultListableBeanFactory
+
+![DefaultListableBeanFactory](images/DefaultListableBeanFactory.png)
+
+BackgroundPreinitializer
