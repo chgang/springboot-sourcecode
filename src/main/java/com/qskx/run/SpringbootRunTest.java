@@ -1,6 +1,8 @@
 package com.qskx.run;
 
 import org.springframework.boot.SpringApplication;
+import org.springframework.boot.autoconfigure.SpringBootApplication;
+import org.springframework.context.annotation.ComponentScan;
 
 /**
  * @ProjectName: springboot-sourcecode
@@ -10,7 +12,10 @@ import org.springframework.boot.SpringApplication;
  * @Version: 1.0
  * Copyright: Copyright (c) 2019
  */
+@SpringBootApplication
+@ComponentScan(basePackages = "com.qskx.*")
 public class SpringbootRunTest {
+
     public static void main(String[] args) {
         SpringApplication.run(SpringbootRunTest.class, args);
     }

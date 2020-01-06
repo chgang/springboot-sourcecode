@@ -470,8 +470,14 @@ FactoryBeanRegistrySupport.getObjectFromFactoryBean
 
 ```java
 protected Object getObjectFromFactoryBean(FactoryBean<?> factory, String beanName, boolean shouldPostProcess) {
+    /*
+         * FactoryBean 也有单例和非单例之分，针对不同类型的 FactoryBean，这里有两种处理方式：
+         *   1. 单例 FactoryBean 生成的 bean 实例也认为是单例类型。需放入缓存中，供后续重复使用
+         *   2. 非单例 FactoryBean 生成的 bean 实例则不会被放入缓存中，每次都会创建新的实例
+         */
 		if (factory.isSingleton() && containsSingleton(beanName)) {
 			synchronized (getSingletonMutex()) {
+			    // 从缓存中取 bean 实例，避免多次创建 bean 实例
 				Object object = this.factoryBeanObjectCache.get(beanName);
 				if (object == null) {
 					object = doGetObjectFromFactoryBean(factory, beanName);
@@ -540,6 +546,7 @@ private Object doGetObjectFromFactoryBean(final FactoryBean<?> factory, final St
 				}
 			}
 			else {
+			    // invoke BeanFactory 的 getObject 方法
 				object = factory.getObject();
 			}
 		}
@@ -557,6 +564,7 @@ private Object doGetObjectFromFactoryBean(final FactoryBean<?> factory, final St
 				throw new BeanCurrentlyInCreationException(
 						beanName, "FactoryBean which is currently in creation returned null from getObject");
 			}
+			// 创建 NullBean
 			object = new NullBean();
 		}
 		return object;
@@ -583,6 +591,10 @@ public Object getSingleton(String beanName, ObjectFactory<?> singletonFactory) {
 				if (logger.isDebugEnabled()) {
 					logger.debug("Creating shared instance of singleton bean '" + beanName + "'");
 				}
+				/* 
+                             * 将 beanName 添加到 singletonsCurrentlyInCreation 集合中，
+                             * 用于表明 beanName 对应的 bean 正在创建中
+                             */
 				beforeSingletonCreation(beanName);
 				boolean newSingleton = false;
 				boolean recordSuppressedExceptions = (this.suppressedExceptions == null);
@@ -629,6 +641,67 @@ AbstractAutowireCapableBeanFatory
 
 ![AbstractAutowireCapableBeanFatory](images/AbstractAutowiredCapableBeanFactory.png)
 
+AbstractAutowireCapableBeanFatory.createBean
+
+```java
+protected Object createBean(String beanName, RootBeanDefinition mbd, @Nullable Object[] args)
+			throws BeanCreationException {
+
+		if (logger.isTraceEnabled()) {
+			logger.trace("Creating instance of bean '" + beanName + "'");
+		}
+		RootBeanDefinition mbdToUse = mbd;
+
+		// Make sure bean class is actually resolved at this point, and
+		// clone the bean definition in case of a dynamically resolved Class
+		// which cannot be stored in the shared merged bean definition.
+		Class<?> resolvedClass = resolveBeanClass(mbd, beanName);
+		if (resolvedClass != null && !mbd.hasBeanClass() && mbd.getBeanClassName() != null) {
+			mbdToUse = new RootBeanDefinition(mbd);
+			mbdToUse.setBeanClass(resolvedClass);
+		}
+
+		// Prepare method overrides.
+		try {
+		    // 处理 lookup-method 和 replace-method 配置，Spring 将这两个配置统称为 override method
+			mbdToUse.prepareMethodOverrides();
+		}
+		catch (BeanDefinitionValidationException ex) {
+			throw new BeanDefinitionStoreException(mbdToUse.getResourceDescription(),
+					beanName, "Validation of method overrides failed", ex);
+		}
+
+		try {
+			// 在 bean 初始化前应用后置处理，如果后置处理返回的 bean 不为空，则直接返回
+			Object bean = resolveBeforeInstantiation(beanName, mbdToUse);
+			if (bean != null) {
+				return bean;
+			}
+		}
+		catch (Throwable ex) {
+			throw new BeanCreationException(mbdToUse.getResourceDescription(), beanName,
+					"BeanPostProcessor before instantiation of bean failed", ex);
+		}
+
+		try {
+			Object beanInstance = doCreateBean(beanName, mbdToUse, args);
+			if (logger.isTraceEnabled()) {
+				logger.trace("Finished creating instance of bean '" + beanName + "'");
+			}
+			return beanInstance;
+		}
+		catch (BeanCreationException | ImplicitlyAppearedSingletonException ex) {
+			// A previously detected exception with proper bean creation context already,
+			// or illegal singleton state to be communicated up to DefaultSingletonBeanRegistry.
+			throw ex;
+		}
+		catch (Throwable ex) {
+			throw new BeanCreationException(
+					mbdToUse.getResourceDescription(), beanName, "Unexpected exception during bean creation", ex);
+		}
+	}
+```
+
 AbstractAutowireCapableBeanFatory.doCreateBean
 
 ```java
@@ -641,6 +714,15 @@ protected Object doCreateBean(final String beanName, final RootBeanDefinition mb
 			instanceWrapper = this.factoryBeanInstanceCache.remove(beanName);
 		}
 		if (instanceWrapper == null) {
+		    /* 
+                     * 创建 bean 实例，并将实例包裹在 BeanWrapper 实现类对象中返回。createBeanInstance 
+                     * 中包含三种创建 bean 实例的方式：
+                     *   1. 通过工厂方法创建 bean 实例
+                     *   2. 通过构造方法自动注入（autowire by constructor）的方式创建 bean 实例
+                     *   3. 通过无参构造方法方法创建 bean 实例
+                     *
+                     * 若 bean 的配置信息中配置了 lookup-method 和 replace-method，则会使用 CGLIB 
+                     */
 			instanceWrapper = createBeanInstance(beanName, mbd, args);
 		}
 		final Object bean = instanceWrapper.getWrappedInstance();
@@ -673,6 +755,7 @@ protected Object doCreateBean(final String beanName, final RootBeanDefinition mb
 						"' to allow for resolving potential circular references");
 			}
 			// singletonFactories 中添加 ObjectFactory
+			// 获取早期 bean 的引用，如果 bean 中的方法被 AOP 切点所匹配到，此时 AOP 相关逻辑会介入
 			addSingletonFactory(beanName, () -> getEarlyBeanReference(beanName, mbd, bean));
 		}
 
@@ -681,6 +764,18 @@ protected Object doCreateBean(final String beanName, final RootBeanDefinition mb
 		try {
 		    // 填充属性，解析依赖
 			populateBean(beanName, mbd, instanceWrapper);
+			/*
+                         * 进行余下的初始化工作，详细如下：
+                         * 1. 判断 bean 是否实现了 BeanNameAware、BeanFactoryAware、
+                         *    BeanClassLoaderAware 等接口，并执行接口方法
+                         * 2. 应用 bean 初始化前置操作
+                         * 3. 如果 bean 实现了 InitializingBean 接口，则执行 afterPropertiesSet 
+                         *    方法。如果用户配置了 init-method，则调用相关方法执行自定义初始化逻辑
+                         * 4. 应用 bean 初始化后置操作
+                         * 
+                         * 另外，AOP 相关逻辑也会在该方法中织入切面逻辑，此时的 exposedObject 就变成了
+                         * 一个代理对象了
+                         */
 			exposedObject = initializeBean(beanName, exposedObject, mbd);
 		}
 		catch (Throwable ex) {
@@ -694,11 +789,13 @@ protected Object doCreateBean(final String beanName, final RootBeanDefinition mb
 		}
 
 		if (earlySingletonExposure) {
+		    // 若 initializeBean 方法未改变 exposedObject 的引用，则此处的条件为 true。
 			Object earlySingletonReference = getSingleton(beanName, false);
 			if (earlySingletonReference != null) {
 				if (exposedObject == bean) {
 					exposedObject = earlySingletonReference;
 				}
+				// 待分析
 				else if (!this.allowRawInjectionDespiteWrapping && hasDependentBean(beanName)) {
 					String[] dependentBeans = getDependentBeans(beanName);
 					Set<String> actualDependentBeans = new LinkedHashSet<>(dependentBeans.length);
