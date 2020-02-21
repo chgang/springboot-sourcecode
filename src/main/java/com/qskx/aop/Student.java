@@ -1,5 +1,7 @@
 package com.qskx.aop;
 
+import com.qskx.feign.CarClient;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 
 /**
@@ -12,6 +14,13 @@ import org.springframework.stereotype.Component;
  */
 @Component
 public class Student {
+//    @Autowired
+//    private Student student;
+
+    @Autowired
+    private CarClient carClient;
+
+    private Integer age;
 
     public String add(String name) {
         System.out.println(">>>>>>>>>>>> 添加一个学生。。。");
@@ -20,5 +29,6 @@ public class Student {
 
     public void delete() {
         System.out.println(">>>>>>>>>>>> 删除一个学生。。。");
+        add("");
     }
 }

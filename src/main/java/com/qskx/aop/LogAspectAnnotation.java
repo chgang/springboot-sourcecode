@@ -17,7 +17,7 @@ import org.springframework.stereotype.Component;
 @Component
 public class LogAspectAnnotation {
 
-    @Before("execution(public * com.qskx.aop.Student.add(..))")
+    @Before("execution(public * com.qskx.aop.Student.add(..)) || execution(public * com.qskx.aop.Teacher.work(..)) ")
     public void bBefore() {
         System.out.println("@@@前置通知");
     }

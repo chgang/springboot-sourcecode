@@ -1,0 +1,3 @@
+FeignRibbonClientAutoConfiguration
+
+LoadBalancerAutoConfiguration
